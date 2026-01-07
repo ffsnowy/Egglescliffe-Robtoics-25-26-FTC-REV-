@@ -251,43 +251,61 @@ public class EinsteinAuto extends LinearOpMode{
 
   //the hard stuff now we've included mecanum stuff so we gotta actually figure this out
 
-  public void getVirtualJoysticks(){
-    if (myGoalTag == null){
-      moving = false;
-      x = 0;
-      y = 0;
-      rotation = 0;
-      return;
-    }
-    double speed = 0.5;
-    moving = true;
-    double tolerance = 1;
-    if (myGoalTag.ftcPose.x < -tolerance){
-      x = -speed;
-    } else if (myGoalTag.ftcPose.x > tolerance){
-      x = speed;
-    } else {
-      x = 0;
-    }
-    
-    double intendedY = 40;
-    if (myGoalTag.ftcPose.y > intendedY + tolerance){
-      y = speed;
-    } else if (myGoalTag.ftcPose.y < intendedY - tolerance){
-      y = -speed;
-    } else {
-      y = 0;
-    }
-    
-    double yawTolerance = 5.0;
-    if (myGoalTag.ftcPose.yaw > yawTolerance){
-      rotation = 0.5;
-    } else if (myGoalTag.ftcPose.yaw < -yawTolerance){
-      rotation = -0.5;
-    } else {
-      rotation = 0.00;
-    }
+
+public void getVirtualJoysticks(){
+  if (myGoalTag == null){
+    moving = false;
+    x = 0;
+    y = 0;
+    rotation = 0;
+    return;
   }
+  
+  moving = true;
+  
+  // Proportional control gains - adjust these to tune behavior
+  double kP_x = 0.05;      // Try 0.05 to start
+  double kP_y = 0.05;      // Try 0.05 to start  
+  double kP_rotation = 0.02; // Try 0.02 to start
+  
+  // Target position
+  double intendedY = 40; // 40 inches away
+  
+  // Calculate errors
+  double errorX = -myGoalTag.ftcPose.x; // Negative because x is reversed
+  double errorY = intendedY - myGoalTag.ftcPose.y;
+  double errorYaw = -myGoalTag.ftcPose.yaw;
+  
+  // Tolerances - larger values = less twitchy
+  double tolerance = 2.0;     // Try 2.0 inches
+  double yawTolerance = 8.0;  // Try 8.0 degrees
+  
+  // Calculate proportional speeds
+  x = errorX * kP_x;
+  y = errorY * kP_y;
+  rotation = errorYaw * kP_rotation;
+  
+  // If within tolerance, stop moving
+  if (Math.abs(errorX) < tolerance){
+    x = 0;
+  }
+  if (Math.abs(errorY) < tolerance){
+    y = 0;
+  }
+  if (Math.abs(errorYaw) < yawTolerance){
+    rotation = 0;
+  }
+  
+  // Limit maximum speed to prevent overshooting
+  double maxSpeed = #; // Try 0.3
+  x = Math.max(-maxSpeed, Math.min(maxSpeed, x));
+  y = Math.max(-maxSpeed, Math.min(maxSpeed, y));
+  rotation = Math.max(-maxSpeed, Math.min(maxSpeed, rotation));
+}
+
+
+
+
    
   // Update input variables
   // block code superior
