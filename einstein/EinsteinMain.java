@@ -52,11 +52,14 @@ public class EinsteinMain extends LinearOpMode{
   boolean rightTriggerPressed = false;
   boolean leftTriggerPressed = false;
   boolean resetHeadingPressed = false;
-  boolean dpadUpPressed = false;
-  boolean ligmaOn = false;
-  boolean dpadLeftPressed = false;
-  boolean infeederOn = false;
-
+  // Timing variables for trigger controls
+  long infeederStartTime = 0;
+  boolean infeederRunning = false;
+  
+  // Outfeeder state machine
+  int outfeederState = 0; // 0=off, 1=spinup, 2=feeding, 3=cooldown
+  long outfeederStateStartTime = 0;
+  
   double y;// Remember, Y stick is reversed! (this is also copied we just moved it)
   double x;
   double rotation;  
@@ -64,6 +67,8 @@ public class EinsteinMain extends LinearOpMode{
   double armDirection;
    
   double ascentDir = 0.0f;
+
+
 
   @Override
   public void runOpMode(){
@@ -214,54 +219,111 @@ public class EinsteinMain extends LinearOpMode{
    
   // Update input variables
   // block code superior
+
   public void getInput(){
     getVirtualJoysticks();
     armDirection = gamepad2.right_stick_y;
-    //ascentDir = 0;
-    //if (gamepad2.left_bumper){
-     //   ascentDir--;
-    //}
-    //if (gamepad2.right_bumper){
-      //  ascentDir++;
-     
-    //}
     ascentDir = gamepad2.left_stick_y;
-    if (rightTriggerPressed){
-      rightTriggerPressed = gamepad1.right_trigger > 0.1;
-    } else {
-      if (gamepad1.right_trigger > 0.1){
-        ligmaOn ^= true;
-        rightTriggerPressed = true;
-      }
-    }
     
+    // Left trigger - simple infeed for set duration
     if (leftTriggerPressed){
       leftTriggerPressed = gamepad1.left_trigger > 0.1;
     } else {
       if (gamepad1.left_trigger > 0.1){
-        infeederOn ^= true;
+        // Start infeeder
+        infeederRunning = true;
+        infeederStartTime = System.currentTimeMillis();
         leftTriggerPressed = true;
+      }
+    }
+    
+    // Right trigger - outfeeder sequence
+    if (rightTriggerPressed){
+      rightTriggerPressed = gamepad1.right_trigger > 0.1;
+      // If trigger released and we're in active states, move to cooldown
+      if (!rightTriggerPressed && (outfeederState == 1 || outfeederState == 2)){
+        outfeederState = 3;
+        outfeederStateStartTime = System.currentTimeMillis();
+      }
+    } else {
+      if (gamepad1.right_trigger > 0.1){
+        // Start outfeeder sequence
+        outfeederState = 1;
+        outfeederStateStartTime = System.currentTimeMillis();
+        rightTriggerPressed = true;
       }
     }
   }
   
   public void ligma(){
-    if (!ligmaOn){
-      drive6.setPower(0);
-      drive7.setPower(0);
-      return;
+    long currentTime = System.currentTimeMillis();
+    long elapsed = currentTime - outfeederStateStartTime;
+    
+    double ligmaspeed = 0.43; //CALIBRATION - outfeeder motor speed
+    
+    switch(outfeederState){
+      case 0: // Off
+        drive6.setPower(0);
+        drive7.setPower(0);
+        break;
+        
+      case 1: // Spinup phase - outfeeder only
+        drive6.setPower(-ligmaspeed);
+        drive7.setPower(ligmaspeed);
+        if (elapsed > 2000){ //CALIBRATION - spinup time in milliseconds (2 seconds)
+          outfeederState = 2;
+          outfeederStateStartTime = currentTime;
+        }
+        break;
+        
+      case 2: // Feeding phase - outfeeder continues, infeeder pushes ball
+        drive6.setPower(-ligmaspeed);
+        drive7.setPower(ligmaspeed);
+        // Infeeder is handled in infeed() method
+        if (elapsed > 1000){ //CALIBRATION - feeding duration (1 second)
+          // If trigger still pressed, stay in this state
+          // If trigger released, cooldown is triggered in getInput()
+        }
+        break;
+        
+      case 3: // Cooldown - outfeeder spins down
+        drive6.setPower(-ligmaspeed);
+        drive7.setPower(ligmaspeed);
+        if (elapsed > 500){ //CALIBRATION - cooldown time (0.5 seconds)
+          outfeederState = 0;
+        }
+        break;
     }
-    double ligmaspeed = 0.43;
-    drive6.setPower(-ligmaspeed);
-    drive7.setPower(ligmaspeed);
   }
   
   public void infeed(){
-    if (!infeederOn){
-      drive5.setPower(0);
+    long currentTime = System.currentTimeMillis();
+    
+    // Handle left trigger infeed
+    if (infeederRunning){
+      long elapsed = currentTime - infeederStartTime;
+      if (elapsed < 4000){ //CALIBRATION - infeed duration (4 seconds)
+        drive5.setPower(1);
+      } else {
+        drive5.setPower(0);
+        infeederRunning = false;
+      }
       return;
     }
-    drive5.setPower(1);
+    
+    // Handle right trigger outfeeder sequence infeed
+    if (outfeederState == 2){
+      long elapsed = currentTime - outfeederStateStartTime;
+      if (elapsed < 1000){ //CALIBRATION - how long infeeder pushes ball (1 second)
+        drive5.setPower(1);
+      } else {
+        drive5.setPower(0);
+      }
+      return;
+    }
+    
+    // Default - motor off
+    drive5.setPower(0);
   }
    
   public void updateGrabber(){
