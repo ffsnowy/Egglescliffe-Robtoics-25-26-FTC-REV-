@@ -1,0 +1,364 @@
+package org.firstinspires.ftc.teamcode.einstein;
+
+import android.util.Size;
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
+import org.firstinspires.ftc.vision.VisionPortal;
+import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.hardware.DistanceSensor;
+import com.qualcomm.robotcore.hardware.IMU;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
+import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
+import org.firstinspires.ftc.robotcore.external.JavaUtil;
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+import java.util.List;
+
+@Autonomous(name="Einstein Auto Red")
+public class EinsteinAutoRed extends LinearOpMode{
+
+  // Drive System
+  private DriveSystem driveSystem;
+
+  // Other Motors
+  private DcMotor drive4;
+  private DcMotor drive5;
+  private DcMotor drive6;
+  private DcMotor drive7;
+  
+  // Camera vision thing
+  AprilTagProcessor myAprilTagProcessor;
+  private VisionPortal myVisionPortal;
+   
+  // Variable to store servo
+  private Servo servo0;
+  private Servo servo1;
+   
+  // Distance sensor
+  private DistanceSensor distance0;
+  private double distance;
+  
+  // Seeing the tag the robot should go to 
+  AprilTagDetection myGoalTag = null;
+  
+  //variables for gamepad
+  boolean rightBumperPressed = false;
+  boolean leftBumperPressed = false;
+  boolean rightTriggerPressed = false;
+  boolean leftTriggerPressed = false;
+  boolean resetHeadingPressed = false;
+
+  double y;
+  double x;
+  double rotation;  
+   
+  double armDirection;
+  double ascentDir = 0.0f;
+  
+  boolean moving = false;
+  String firingStatus = "Invalid";
+  
+  // CALIBRATION: Red team AprilTag ID (check manual)
+  private final int RED_APRILTAG_ID = 16;
+  
+  // CALIBRATION: Firing zone parameters (in inches and degrees)
+  private final double MIN_FIRING_DISTANCE = 35.0; // inches
+  private final double MAX_FIRING_DISTANCE = 45.0; // inches
+  private final double TARGET_FIRING_DISTANCE = 40.0; // inches
+  private final double MAX_YAW_ERROR = 10.0; // degrees
+  private final double MAX_X_OFFSET = 3.0; // inches (side to side)
+  
+  // CALIBRATION: Movement parameters
+  private final double APPROACH_SPEED = 0.3;
+  private final double POSITION_TOLERANCE = 2.0; // inches
+  private final double YAW_TOLERANCE = 5.0; // degrees
+  
+  // CALIBRATION: Firing parameters
+  private final double OUTFEEDER_SPEED = 0.43;
+  private final int FIRING_TIME_MS = 800; // Time per ball in milliseconds
+  private final int BALLS_TO_FIRE = 3;
+
+  @Override
+  public void runOpMode(){
+
+    boolean streamVision = true;
+    
+    // DriveSystem for managing the mechanum wheels
+    driveSystem = new DriveSystem(
+      hardwareMap.get(DcMotor.class, "drive0"),
+      hardwareMap.get(DcMotor.class, "drive1"),
+      hardwareMap.get(DcMotor.class, "drive2"),
+      hardwareMap.get(DcMotor.class, "drive3"),
+      hardwareMap.get(IMU.class, "imu")
+    );
+
+    myAprilTagProcessor = AprilTagProcessor.easyCreateWithDefaults();
+    myVisionPortal = VisionPortal.easyCreateWithDefaults(hardwareMap.get(WebcamName.class, "webcam0"), myAprilTagProcessor);
+     
+    if (!streamVision){
+      myVisionPortal.stopStreaming();
+    }
+     
+    y = 0;
+    x = 0;
+    rotation = 0;
+
+    armDirection = 0;
+
+    distance0 = hardwareMap.get(DistanceSensor.class, "distance0");
+
+    drive4 = hardwareMap.get(DcMotor.class, "drive4");
+    drive5 = hardwareMap.get(DcMotor.class, "drive5");
+    drive6 = hardwareMap.get(DcMotor.class, "drive6");
+    drive7 = hardwareMap.get(DcMotor.class, "drive7");
+
+    servo0 = hardwareMap.get(Servo.class, "servo0");
+    servo1 = hardwareMap.get(Servo.class, "servo1");
+
+    telemetry.addData("Status", "Initialized - Red Team");
+    telemetry.addData("Target AprilTag", RED_APRILTAG_ID);
+    telemetry.update();
+    
+    waitForStart();
+
+    int stage = 1;
+    int firingCounter = 0;
+    int ballsFired = 0;
+
+    while (opModeIsActive()){
+
+      // Find the red AprilTag
+      findRedAprilTag();
+      
+      // Check if we're in valid firing position
+      checkFiringValidity();
+
+      switch (stage) {
+        case 1: {
+          // Stage 1: Search and approach the AprilTag
+          telemetry.addData("Stage", "1: Searching for AprilTag");
+          
+          if (myGoalTag != null) {
+            // Calculate movement to approach tag
+            calculateApproachMovement();
+            
+            // If we're in position and valid to fire, move to next stage
+            if (firingStatus.equals("Valid")) {
+              stage++;
+              x = 0;
+              y = 0;
+              rotation = 0;
+              firingCounter = 0;
+            }
+          } else {
+            // No tag found, rotate slowly to search
+            x = 0;
+            y = 0;
+            rotation = 0.2; // CALIBRATION: search rotation speed
+          }
+          break;
+        }
+        
+        case 2: {
+          // Stage 2: Fire balls
+          telemetry.addData("Stage", "2: Firing");
+          
+          x = 0;
+          y = 0;
+          rotation = 0;
+          
+          // Run outfeeder
+          drive6.setPower(-OUTFEEDER_SPEED);
+          drive7.setPower(OUTFEEDER_SPEED);
+          
+          firingCounter++;
+          
+          // Fire for calculated time
+          if (firingCounter >= (FIRING_TIME_MS / 10)) { // Divided by 10 because loop is 10ms
+            ballsFired++;
+            firingCounter = 0;
+            
+            if (ballsFired >= BALLS_TO_FIRE) {
+              stage++;
+            }
+          }
+          break;
+        }
+        
+        case 3: {
+          // Stage 3: Stop and finish
+          telemetry.addData("Stage", "3: Complete");
+          x = 0;
+          y = 0;
+          rotation = 0;
+          drive6.setPower(0);
+          drive7.setPower(0);
+          break;
+        }
+      }
+      
+      // Update speed multiplier
+      driveSystem.setSpeed(APPROACH_SPEED);
+      // Update drive heading
+      driveSystem.updateHeading();
+      // Update motor powers
+      driveSystem.setMotorPowers(x, y, rotation);
+
+      // Send debug telemetry to the driver hub
+      telemetry.addData("Firing Status", firingStatus);
+      telemetry.addData("Balls Fired", ballsFired + "/" + BALLS_TO_FIRE);
+      telemetryAprilTag();
+      driveSystem.telemetry(telemetry);
+      updateTelemetry();
+
+      wait(10);
+    }
+  }
+
+  // Find the red AprilTag and ignore blue tags
+  private void findRedAprilTag() {
+    List<AprilTagDetection> myAprilTagDetections;
+    AprilTagDetection myAprilTagDetection;
+  
+    myAprilTagDetections = myAprilTagProcessor.getDetections();
+    
+    myGoalTag = null;
+    
+    for (AprilTagDetection myAprilTagDetection_item : myAprilTagDetections) {
+      myAprilTagDetection = myAprilTagDetection_item;
+      
+      // Only accept the red AprilTag
+      if (myAprilTagDetection.id == RED_APRILTAG_ID) {
+        myGoalTag = myAprilTagDetection;
+        break; // Found our tag, stop looking
+      }
+    }
+  }
+
+  // Check if robot is in valid firing position
+  private void checkFiringValidity() {
+    if (myGoalTag == null) {
+      firingStatus = "Invalid - No Tag";
+      return;
+    }
+    
+    if (myGoalTag.ftcPose == null) {
+      firingStatus = "Invalid - No Pose";
+      return;
+    }
+    
+    double distance = myGoalTag.ftcPose.y;
+    double xOffset = Math.abs(myGoalTag.ftcPose.x);
+    double yaw = Math.abs(myGoalTag.ftcPose.yaw);
+    
+    // Check all firing conditions
+    if (distance < MIN_FIRING_DISTANCE) {
+      firingStatus = "Invalid - Too Close";
+      return;
+    }
+    
+    if (distance > MAX_FIRING_DISTANCE) {
+      firingStatus = "Invalid - Too Far";
+      return;
+    }
+    
+    if (xOffset > MAX_X_OFFSET) {
+      firingStatus = "Invalid - Off Center";
+      return;
+    }
+    
+    if (yaw > MAX_YAW_ERROR) {
+      firingStatus = "Invalid - Bad Angle";
+      return;
+    }
+    
+    firingStatus = "Valid";
+  }
+
+  // Calculate movement to approach the AprilTag
+  private void calculateApproachMovement() {
+    if (myGoalTag == null || myGoalTag.ftcPose == null) {
+      moving = false;
+      x = 0;
+      y = 0;
+      rotation = 0;
+      return;
+    }
+    
+    moving = true;
+    
+    // CALIBRATION: Proportional control gains
+    double kP_x = 0.05;
+    double kP_y = 0.05;
+    double kP_rotation = 0.02;
+    
+    // Calculate errors
+    double errorX = -myGoalTag.ftcPose.x;
+    double errorY = TARGET_FIRING_DISTANCE - myGoalTag.ftcPose.y;
+    double errorYaw = -myGoalTag.ftcPose.yaw;
+    
+    // Calculate proportional speeds
+    x = errorX * kP_x;
+    y = errorY * kP_y;
+    rotation = errorYaw * kP_rotation;
+    
+    // If within tolerance, stop moving
+    if (Math.abs(errorX) < POSITION_TOLERANCE) {
+      x = 0;
+    }
+    if (Math.abs(errorY) < POSITION_TOLERANCE) {
+      y = 0;
+    }
+    if (Math.abs(errorYaw) < YAW_TOLERANCE) {
+      rotation = 0;
+    }
+    
+    // Limit maximum speed
+    double maxSpeed = APPROACH_SPEED;
+    x = Math.max(-maxSpeed, Math.min(maxSpeed, x));
+    y = Math.max(-maxSpeed, Math.min(maxSpeed, y));
+    rotation = Math.max(-maxSpeed, Math.min(maxSpeed, rotation));
+  }
+
+  public void wait(int ms) {
+    try {
+      Thread.sleep(ms);
+    } catch (Exception e) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  private void telemetryAprilTag() {
+    List<AprilTagDetection> myAprilTagDetections;
+    AprilTagDetection myAprilTagDetection;
+  
+    myAprilTagDetections = myAprilTagProcessor.getDetections();
+    telemetry.addData("# AprilTags Detected", JavaUtil.listLength(myAprilTagDetections));
+    
+    for (AprilTagDetection myAprilTagDetection_item : myAprilTagDetections) {
+      myAprilTagDetection = myAprilTagDetection_item;
+      telemetry.addLine("");
+      
+      if (myAprilTagDetection.metadata != null) {
+        if (myAprilTagDetection.id == RED_APRILTAG_ID) {
+          telemetry.addLine(">>> RED TARGET <<<");
+        }
+        telemetry.addLine("==== (ID " + myAprilTagDetection.id + ") " + myAprilTagDetection.metadata.name);
+        telemetry.addLine("XYZ " + JavaUtil.formatNumber(myAprilTagDetection.ftcPose.x, 6, 1) + " " + JavaUtil.formatNumber(myAprilTagDetection.ftcPose.y, 6, 1) + " " + JavaUtil.formatNumber(myAprilTagDetection.ftcPose.z, 6, 1) + "  (inch)");
+        telemetry.addLine("PRY " + JavaUtil.formatNumber(myAprilTagDetection.ftcPose.pitch, 6, 1) + " " + JavaUtil.formatNumber(myAprilTagDetection.ftcPose.roll, 6, 1) + " " + JavaUtil.formatNumber(myAprilTagDetection.ftcPose.yaw, 6, 1) + "  (deg)");
+        telemetry.addLine("RBE " + JavaUtil.formatNumber(myAprilTagDetection.ftcPose.range, 6, 1) + " " + JavaUtil.formatNumber(myAprilTagDetection.ftcPose.bearing, 6, 1) + " " + JavaUtil.formatNumber(myAprilTagDetection.ftcPose.elevation, 6, 1) + "  (inch, deg, deg)");
+      } else {
+        telemetry.addLine("==== (ID " + myAprilTagDetection.id + ") Unknown");
+      }
+    }
+  }
+
+  public void updateTelemetry() {
+    telemetry.addData("moving", moving);
+    telemetry.addData("x", x);
+    telemetry.addData("y", y);
+    telemetry.addData("rotation", rotation);
+    telemetry.update();
+  }
+}
