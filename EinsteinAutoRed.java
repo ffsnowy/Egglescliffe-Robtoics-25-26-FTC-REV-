@@ -177,15 +177,18 @@ public class EinsteinAutoRed extends LinearOpMode{
         case 2: {
           // Stage 2: Rotate to search for red target tag
           telemetry.addData("Stage", "2: Searching for Red Target");
+          telemetry.addData("Goal Tag Found", myGoalTag != null);
           
-          if (myGoalTag != null) {
+          if (myGoalTag != null && myGoalTag.ftcPose != null) {
             // Found the red target, move to next stage
+            telemetry.addData("Stage 2 Status", "TARGET FOUND! Moving to Stage 3");
             stage++;
             x = 0;
             y = 0;
             rotation = 0;
           } else {
             // Rotate to search for target (NEGATIVE direction for red team)
+            telemetry.addData("Stage 2 Status", "Searching...");
             x = 0;
             y = 0;
             rotation = SEARCH_ROTATION_SPEED; // CALIBRATION: search rotation speed (negative for red)
@@ -196,13 +199,17 @@ public class EinsteinAutoRed extends LinearOpMode{
         case 3: {
           // Stage 3: Approach the red target tag
           telemetry.addData("Stage", "3: Approaching Red Target");
+          telemetry.addData("Goal Tag Present", myGoalTag != null);
           
-          if (myGoalTag != null) {
+          if (myGoalTag != null && myGoalTag.ftcPose != null) {
             // Calculate movement to approach tag
             calculateApproachMovement();
             
+            telemetry.addData("Stage 3 Status", "Approaching - Firing: " + firingStatus);
+            
             // If we're in position and valid to fire, move to next stage
             if (firingStatus.equals("Valid")) {
+              telemetry.addData("Stage 3 Status", "VALID! Moving to Stage 4");
               stage++;
               x = 0;
               y = 0;
@@ -211,6 +218,7 @@ public class EinsteinAutoRed extends LinearOpMode{
             }
           } else {
             // Lost the tag, go back to searching
+            telemetry.addData("Stage 3 Status", "Lost tag - back to Stage 2");
             stage = 2;
             x = 0;
             y = 0;
@@ -480,6 +488,18 @@ public class EinsteinAutoRed extends LinearOpMode{
     telemetry.addData("rotation", rotation);
     if (obeliskTag != null && obeliskTag.ftcPose != null) {
       telemetry.addData("Obelisk Distance", obeliskTag.ftcPose.y);
+    }
+    if (myGoalTag != null) {
+      telemetry.addData("Red Tag ID", myGoalTag.id);
+      if (myGoalTag.ftcPose != null) {
+        telemetry.addData("Red Tag Distance", myGoalTag.ftcPose.y);
+        telemetry.addData("Red Tag X Offset", myGoalTag.ftcPose.x);
+        telemetry.addData("Red Tag Yaw", myGoalTag.ftcPose.yaw);
+      } else {
+        telemetry.addData("Red Tag Pose", "NULL");
+      }
+    } else {
+      telemetry.addData("Red Tag", "NOT FOUND");
     }
     telemetry.update();
   }
