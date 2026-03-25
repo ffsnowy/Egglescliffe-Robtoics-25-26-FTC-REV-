@@ -1,6 +1,7 @@
 package org.firstinspires.ftc.teamcode.einstein;
 
 import android.util.Size;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.ExposureControl;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.hardware.DcMotor;
@@ -13,6 +14,7 @@ import org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName;
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
 import org.firstinspires.ftc.robotcore.external.JavaUtil;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+import org.firstinspires.ftc.robotcore.external.hardware.camera.controls.GainControl;
 import java.util.List;
 
 @Autonomous(name="Einstein Auto Red")
@@ -28,9 +30,9 @@ public class EinsteinAutoRed extends LinearOpMode{
   private DcMotor drive7;
   
   // Camera vision thing
-  AprilTagProcessor myAprilTagProcessor;
+  private AprilTagProcessor myAprilTagProcessor;
   private VisionPortal myVisionPortal;
-   
+  
   // Variable to store servo
   private Servo servo0;
   private Servo servo1;
@@ -60,6 +62,8 @@ public class EinsteinAutoRed extends LinearOpMode{
   boolean moving = false;
   String firingStatus = "Invalid";
   
+  private final double SPEED_MULTIPLIER = 1.0;
+  
   // CALIBRATION: Red team AprilTag ID (check manual)
   private final int RED_APRILTAG_ID = 24;
   
@@ -69,22 +73,22 @@ public class EinsteinAutoRed extends LinearOpMode{
   private final int OBELISK_TAG_3 = 23;
   
   // CALIBRATION: Stage 1 - Approach obelisk parameters
-  private final double TARGET_OBELISK_DISTANCE = 72.0; // inches from obelisk
-  private final double OBELISK_DISTANCE_TOLERANCE = 3.0; // inches
-  private final double APPROACH_OBELISK_SPEED = 0.5; // Speed when approaching obelisk
+  private final double TARGET_OBELISK_DISTANCE = 50.0; // inches from obelisk
+  private final double OBELISK_DISTANCE_TOLERANCE = 10.0; // inches
+  private final double APPROACH_OBELISK_SPEED = 0.25; // Speed when approaching obelisk
   
   // CALIBRATION: Firing zone parameters (in inches and degrees)
   private final double MIN_FIRING_DISTANCE = 35.0; // inches
   private final double MAX_FIRING_DISTANCE = 45.0; // inches
   private final double TARGET_FIRING_DISTANCE = 40.0; // inches
   private final double MAX_YAW_ERROR = 10.0; // degrees
-  private final double MAX_X_OFFSET = 3.0; // inches (side to side)
+  private final double MAX_X_OFFSET = 10.0; // inches (side to side)
   
   // CALIBRATION: Movement parameters
   private final double APPROACH_SPEED = 0.7; // Speed when approaching target
-  private final double SEARCH_ROTATION_SPEED = -0.2; // Speed when searching for target (NEGATIVE for red team)
-  private final double POSITION_TOLERANCE = 2.0; // inches
-  private final double YAW_TOLERANCE = 5.0; // degrees
+  private final double SEARCH_ROTATION_SPEED = -0.2; // Speed when searching for target
+  private final double POSITION_TOLERANCE = 20.0; // inches
+  private final double YAW_TOLERANCE = 10.0; // degrees
   
   // CALIBRATION: Firing parameters
   private final double OUTFEEDER_SPEED = 0.43;
@@ -111,6 +115,10 @@ public class EinsteinAutoRed extends LinearOpMode{
     if (!streamVision){
       myVisionPortal.stopStreaming();
     }
+    
+    while (myVisionPortal.getCameraState() != VisionPortal.CameraState.STREAMING) {
+      wait(50);
+    }
      
     y = 0;
     x = 0;
@@ -120,10 +128,10 @@ public class EinsteinAutoRed extends LinearOpMode{
 
     distance0 = hardwareMap.get(DistanceSensor.class, "distance0");
 
-    drive4 = hardwareMap.get(DcMotor.class, "drive4");
-    drive5 = hardwareMap.get(DcMotor.class, "drive5");
-    drive6 = hardwareMap.get(DcMotor.class, "drive6");
-    drive7 = hardwareMap.get(DcMotor.class, "drive7");
+    // drive4 = hardwareMap.get(DcMotor.class, "drive4");
+    // drive5 = hardwareMap.get(DcMotor.class, "drive5");
+    // drive6 = hardwareMap.get(DcMotor.class, "drive6");
+    // drive7 = hardwareMap.get(DcMotor.class, "drive7");
 
     servo0 = hardwareMap.get(Servo.class, "servo0");
     servo1 = hardwareMap.get(Servo.class, "servo1");
@@ -133,6 +141,11 @@ public class EinsteinAutoRed extends LinearOpMode{
     telemetry.update();
     
     waitForStart();
+
+    ExposureControl exposureControl = myVisionPortal.getCameraControl(ExposureControl.class);
+    exposureControl.setExposure(6, java.util.concurrent.TimeUnit.MILLISECONDS);
+    GainControl gainControl = myVisionPortal.getCameraControl(GainControl.class);
+    gainControl.setGain(100);
 
     int stage = 1;
     int firingCounter = 0;
@@ -158,7 +171,10 @@ public class EinsteinAutoRed extends LinearOpMode{
             
             // Check if we're at target distance from obelisk
             if (obeliskTag.ftcPose != null && 
-                Math.abs(obeliskTag.ftcPose.y - TARGET_OBELISK_DISTANCE) < OBELISK_DISTANCE_TOLERANCE) {
+                Math.abs(TARGET_OBELISK_DISTANCE - obeliskTag.ftcPose.y) < OBELISK_DISTANCE_TOLERANCE &&
+                Math.abs(obeliskTag.ftcPose.x) < MAX_X_OFFSET &&
+                Math.abs(obeliskTag.ftcPose.yaw) < YAW_TOLERANCE
+            ) {
               // We're at the right distance, move to next stage
               stage++;
               x = 0;
@@ -180,18 +196,26 @@ public class EinsteinAutoRed extends LinearOpMode{
           telemetry.addData("Goal Tag Found", myGoalTag != null);
           
           if (myGoalTag != null && myGoalTag.ftcPose != null) {
-            // Found the red target, move to next stage
-            telemetry.addData("Stage 2 Status", "TARGET FOUND! Moving to Stage 3");
-            stage++;
-            x = 0;
-            y = 0;
-            rotation = 0;
+            if (Math.abs(myGoalTag.ftcPose.bearing) < 3) {
+              // Found the red target, move to next stage
+              telemetry.addData("Stage 2 Status", "TARGET FOUND! Moving to Stage 3");
+              stage++;
+              x = 0;
+              y = 0;
+              rotation = 0;
+            } else {
+              // Found the red target, but has a big bearing
+              telemetry.addData("Stage 2 Status", "TARGET FOUND! Adjusting bearing");
+              x = 0;
+              y = 0;
+              rotation = SEARCH_ROTATION_SPEED;
+            }
           } else {
-            // Rotate to search for target (NEGATIVE direction for red team)
+            // Rotate to search for target
             telemetry.addData("Stage 2 Status", "Searching...");
             x = 0;
             y = 0;
-            rotation = SEARCH_ROTATION_SPEED; // CALIBRATION: search rotation speed (negative for red)
+            rotation = SEARCH_ROTATION_SPEED; // CALIBRATION: search rotation speed
           }
           break;
         }
@@ -200,30 +224,37 @@ public class EinsteinAutoRed extends LinearOpMode{
           // Stage 3: Approach the red target tag
           telemetry.addData("Stage", "3: Approaching Red Target");
           telemetry.addData("Goal Tag Present", myGoalTag != null);
+         
+          double distance_cm = distance0.getDistance(DistanceUnit.CM);
+          //hello noah
+          double ideal_distance = 50;
+          double tolerance = 3.141592653589793;
+          double speeeeeeeeeeeeeeeEEEEEEEEEEEEED = 0.3141592;
+          if (distance_cm > ideal_distance + tolerance) {
+            //"This means we're too far away, so move forwards", Noah 24.02.2026
+            x = 0;
+            y = speeeeeeeeeeeeeeeEEEEEEEEEEEEED;
+            rotation = 0;
+          }
           
-          if (myGoalTag != null && myGoalTag.ftcPose != null) {
-            // Calculate movement to approach tag
-            calculateApproachMovement();
-            
-            telemetry.addData("Stage 3 Status", "Approaching - Firing: " + firingStatus);
-            
-            // If we're in position and valid to fire, move to next stage
-            if (firingStatus.equals("Valid")) {
-              telemetry.addData("Stage 3 Status", "VALID! Moving to Stage 4");
-              stage++;
-              x = 0;
-              y = 0;
-              rotation = 0;
-              firingCounter = 0;
-            }
-          } else {
-            // Lost the tag, go back to searching
-            telemetry.addData("Stage 3 Status", "Lost tag - back to Stage 2");
-            stage = 2;
+          if (distance_cm < ideal_distance - tolerance) {
+            //"This means we're too close, so move backwards", Noah 24.02.2026
+            x = 0;
+            y = -speeeeeeeeeeeeeeeEEEEEEEEEEEEED;
+            rotation = 0;
+          }
+          
+          if (Math.max(
+              ideal_distance - tolerance,
+              Math.min(ideal_distance + tolerance, distance_cm)) == distance_cm
+          ) {
+            //"If the distance is in the valid range, proceed to the next stage", Noah 24.02.2026
             x = 0;
             y = 0;
             rotation = 0;
+            stage++;
           }
+          
           break;
         }
         
@@ -234,6 +265,10 @@ public class EinsteinAutoRed extends LinearOpMode{
           x = 0;
           y = 0;
           rotation = 0;
+          
+          if (stage == 4) {
+            break;
+          }
           
           // Run outfeeder
           drive6.setPower(-OUTFEEDER_SPEED);
@@ -265,15 +300,11 @@ public class EinsteinAutoRed extends LinearOpMode{
         }
       }
       
-      // Update speed multiplier based on stage
-      if (stage == 1) {
-        driveSystem.setSpeed(APPROACH_OBELISK_SPEED);
-      } else {
-        driveSystem.setSpeed(APPROACH_SPEED);
-      }
+      
+      driveSystem.setSpeed(SPEED_MULTIPLIER);
       
       // Update drive heading
-      driveSystem.updateHeading();
+      ///driveSystem.updateHeading();
       // Update motor powers
       driveSystem.setMotorPowers(x, y, rotation);
 
@@ -310,7 +341,7 @@ public class EinsteinAutoRed extends LinearOpMode{
     }
   }
 
-  // Find the red AprilTag and ignore blue tags
+  // Find the red AprilTag and ignore red tags
   private void findRedAprilTag() {
     List<AprilTagDetection> myAprilTagDetections;
     AprilTagDetection myAprilTagDetection;
@@ -348,9 +379,16 @@ public class EinsteinAutoRed extends LinearOpMode{
     double errorX = -obeliskTag.ftcPose.x;
     
     // Calculate speeds
-    y = errorY * kP_y_obelisk;
-    x = errorX * kP_x_obelisk;
-    rotation = 0; // Don't rotate during approach
+    y = -errorY * kP_y_obelisk;
+    x = -errorX * kP_x_obelisk;
+    
+    rotation = obeliskTag.ftcPose.yaw / 45;
+    rotation = Math.min(1, Math.max(rotation, -1));
+    
+    if (obeliskTag.ftcPose.bearing > YAW_TOLERANCE ||
+        obeliskTag.ftcPose.bearing < -YAW_TOLERANCE) {
+      rotation = 0;          
+    }
     
     // Limit speeds
     double maxSpeed = APPROACH_OBELISK_SPEED;
@@ -385,16 +423,15 @@ public class EinsteinAutoRed extends LinearOpMode{
       return;
     }
     
-    if (xOffset > MAX_X_OFFSET) {
+    if (Math.abs(xOffset) > MAX_X_OFFSET) {
       firingStatus = "Invalid - Off Center";
       return;
     }
     
-    if (yaw > MAX_YAW_ERROR) {
+    if (Math.abs(yaw) > MAX_YAW_ERROR) {
       firingStatus = "Invalid - Bad Angle";
       return;
     }
-    
     firingStatus = "Valid";
   }
 
@@ -486,6 +523,7 @@ public class EinsteinAutoRed extends LinearOpMode{
     telemetry.addData("x", x);
     telemetry.addData("y", y);
     telemetry.addData("rotation", rotation);
+    telemetry.addData("distance0", distance0.getDistance(DistanceUnit.CM));
     if (obeliskTag != null && obeliskTag.ftcPose != null) {
       telemetry.addData("Obelisk Distance", obeliskTag.ftcPose.y);
     }

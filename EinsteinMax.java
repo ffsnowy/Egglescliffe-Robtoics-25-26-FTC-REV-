@@ -21,17 +21,19 @@ import java.lang.Math;
 import java.util.List;
 
 @TeleOp
-public class EinsteinMini extends LinearOpMode{
-  private DriveSystem drive_system;
+public class EinsteinMax extends LinearOpMode{
+  private DriveSystem driveSystem;
+  private FiringSystem firingSystem;
   double x, y, rotation = 0;
   
   boolean leftBumperPressed, rightBumperPressed = false;
   boolean resetHeadingPressed = false;
+  boolean autoShootPressed = false;
   
   @Override
   public void runOpMode(){
     waitForStart();
-    drive_system = new DriveSystem(
+    driveSystem = new DriveSystem(
       hardwareMap.get(DcMotor.class, "drive0"),
       hardwareMap.get(DcMotor.class, "drive1"),
       hardwareMap.get(DcMotor.class, "drive2"),
@@ -39,12 +41,18 @@ public class EinsteinMini extends LinearOpMode{
       hardwareMap.get(IMU.class, "imu0")
     );
     
+    firingSystem = new FiringSystem(
+      hardwareMap.get(DcMotor.class, "drive4")  
+    );
+    
     while (opModeIsActive()){
       getInput();
       updateSpeed();
-      drive_system.updateHeading();
-      drive_system.setMotorPowers(x, y, rotation);
-      drive_system.telemetry(telemetry);
+      driveSystem.updateHeading();
+      driveSystem.setMotorPowers(x, y, rotation);
+      firingSystem.update();
+      driveSystem.telemetry(telemetry);
+      firingSystem.telemetry(telemetry);
       updateTelemetry();
       
       wait(10);
@@ -72,7 +80,7 @@ public class EinsteinMini extends LinearOpMode{
   void updateSpeed() {
     if (gamepad1.right_bumper){//object created not by us we can't rename that
       if (!rightBumperPressed){
-        drive_system.setSpeed(1.0);
+        driveSystem.setSpeed(1.0);
       }
       rightBumperPressed = true;
     } else {
@@ -81,7 +89,7 @@ public class EinsteinMini extends LinearOpMode{
 
     if (gamepad1.left_bumper){//object created not by us we can't rename that
       if (! leftBumperPressed){
-        drive_system.setSpeed(0.2);
+        driveSystem.setSpeed(0.5);
       }
       leftBumperPressed = true;
     } else {
@@ -90,13 +98,26 @@ public class EinsteinMini extends LinearOpMode{
     
     if (gamepad1.y) {
       if (!resetHeadingPressed) {
-        drive_system.resetHeading();
+        driveSystem.resetHeading();
       }
       resetHeadingPressed = true;
     } else {
       resetHeadingPressed = false;
+    }  
+      
+    if (gamepad1.b) {
+      if (!autoShootPressed) {
+        firingSystem.fire();
+      } 
+      autoShootPressed = true;
+    } else {
+      autoShootPressed = false;
     }
+    
   }
+  
+  
+
   public void updateTelemetry() {
     telemetry.addData("x", x);
     telemetry.addData("y", y);

@@ -22,12 +22,7 @@ public class EinsteinAutoBlue extends LinearOpMode{
 
   // Drive System
   private DriveSystem driveSystem;
-
-  // Other Motors
-  private DcMotor drive4;
-  private DcMotor drive5;
-  private DcMotor drive6;
-  private DcMotor drive7;
+  private FiringSystem firingSystem;
   
   // Camera vision thing
   private AprilTagProcessor myAprilTagProcessor;
@@ -108,6 +103,8 @@ public class EinsteinAutoBlue extends LinearOpMode{
       hardwareMap.get(DcMotor.class, "drive3"),
       hardwareMap.get(IMU.class, "imu")
     );
+    
+    firingSystem = new FiringSystem(hardwareMap.get(DcMotor.class, "drive4"));
 
     myAprilTagProcessor = AprilTagProcessor.easyCreateWithDefaults();
     myVisionPortal = VisionPortal.easyCreateWithDefaults(hardwareMap.get(WebcamName.class, "webcam0"), myAprilTagProcessor);
@@ -127,11 +124,6 @@ public class EinsteinAutoBlue extends LinearOpMode{
     armDirection = 0;
 
     distance0 = hardwareMap.get(DistanceSensor.class, "distance0");
-
-    // drive4 = hardwareMap.get(DcMotor.class, "drive4");
-    // drive5 = hardwareMap.get(DcMotor.class, "drive5");
-    // drive6 = hardwareMap.get(DcMotor.class, "drive6");
-    // drive7 = hardwareMap.get(DcMotor.class, "drive7");
 
     servo0 = hardwareMap.get(Servo.class, "servo0");
     servo1 = hardwareMap.get(Servo.class, "servo1");
@@ -261,30 +253,8 @@ public class EinsteinAutoBlue extends LinearOpMode{
         case 4: {
           // Stage 4: Fire balls
           telemetry.addData("Stage", "4: Firing");
-          
-          x = 0;
-          y = 0;
-          rotation = 0;
-          
-          if (stage == 4) {
-            break;
-          }
-          
-          // Run outfeeder
-          drive6.setPower(-OUTFEEDER_SPEED);
-          drive7.setPower(OUTFEEDER_SPEED);
-          
-          firingCounter++;
-          
-          // Fire for calculated time
-          if (firingCounter >= (FIRING_TIME_MS / 10)) { // Divided by 10 because loop is 10ms
-            ballsFired++;
-            firingCounter = 0;
-            
-            if (ballsFired >= BALLS_TO_FIRE) {
-              stage++;
-            }
-          }
+          firingSystem.fire();
+          stage++;
           break;
         }
         
@@ -294,8 +264,6 @@ public class EinsteinAutoBlue extends LinearOpMode{
           x = 0;
           y = 0;
           rotation = 0;
-          drive6.setPower(0);
-          drive7.setPower(0);
           break;
         }
       }
@@ -307,12 +275,14 @@ public class EinsteinAutoBlue extends LinearOpMode{
       ///driveSystem.updateHeading();
       // Update motor powers
       driveSystem.setMotorPowers(x, y, rotation);
+      firingSystem.update();
 
       // Send debug telemetry to the driver hub
       telemetry.addData("Firing Status", firingStatus);
       telemetry.addData("Balls Fired", ballsFired + "/" + BALLS_TO_FIRE);
       telemetryAprilTag();
       driveSystem.telemetry(telemetry);
+      firingSystem.telemetry(telemetry);
       updateTelemetry();
 
       wait(10);
